@@ -1,5 +1,6 @@
 from sklearn.linear_model import SGDClassifier
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import RadiusNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import LinearSVC
 from sklearn.svm import SVC
@@ -27,7 +28,8 @@ clfs = {
     'Neural Net': MLPClassifier(alpha=0.001,
                                 hidden_layer_sizes=(15, 10, 5),
                                 solver='lbfgs',
-                                activation='logistic')
+                                activation='logistic'),
+    'Radius KNN': RadiusNeighborsClassifier(radius=1.0, weights='distance', outlier_label=1)
 }
 
 fitted_clfs = {name: clf.fit(X_train_scaled, y_train) for name, clf in clfs.items()}

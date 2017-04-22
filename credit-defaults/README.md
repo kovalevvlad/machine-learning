@@ -6,7 +6,7 @@ payment.
 
 ### Evaluated Predictors
 So far I have attempted to use the following predictors with grid search
-for meta parameter optimization:
+for hyper-parameter optimization:
  * Stochastic Gradient Descent
  * Linear Support Vector Classifier
  * Support Vector Classifier with an RBF Kernel
@@ -26,4 +26,4 @@ As can be seen from the following learning curves:
 ![Neural Network](learning-curves/neural-net.png)
 
 Neural nets, SVC-RBF and KNN classifiers exhibit the best performance
-for the current problem.
+for the current problem (after a simple grid search across hyper-parameters).
