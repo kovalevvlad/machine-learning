@@ -50,7 +50,7 @@ def plot_learning_curve(estimator, title, X, y, ylim=None, cv=None, n_jobs=1, tr
     if ylim is not None:
         plt.ylim(*ylim)
     plt.xlabel("Training examples")
-    plt.ylabel("Score")
+    plt.ylabel("{}Score".format("" if scoring is None else scoring + " "))
     train_sizes, train_scores, test_scores = learning_curve(
         estimator, X, y, cv=cv, n_jobs=n_jobs, train_sizes=train_sizes, scoring=scoring)
     train_scores_mean = np.mean(train_scores, axis=1)
