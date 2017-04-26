@@ -24,7 +24,7 @@ def read_stream(s):
 
 def normalize_heading(heading, stem):
     # drop all digits and punctuation - iphone4 is not a great feature but phone is.
-    letters_only = ''.join([c for c in heading if (97 <= ord(c) <= 122 or c == ' ')])
+    letters_only = ''.join([c if (97 <= ord(c) <= 122 or c == ' ') else ' ' for c in heading])
     words = [x for x in letters_only.split(" ") if len(x) > 0]
     stemmed_words = [stem(x) for x in words]
     return ' '.join(stemmed_words)
