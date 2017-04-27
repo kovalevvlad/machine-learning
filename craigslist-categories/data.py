@@ -6,8 +6,6 @@ import inflect
 
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.preprocessing import LabelEncoder
-from nltk.stem.wordnet import WordNetLemmatizer
-import nltk
 
 inflect_engine = inflect.engine()
 
@@ -22,18 +20,16 @@ def read_stream(s):
     return pd.read_json(string_io)
 
 
-def normalize_heading(heading, stem):
+def drop_punctuation(heading):
     # drop all digits and punctuation - iphone4 is not a great feature but phone is.
     letters_only = ''.join([c if (97 <= ord(c) <= 122 or c == ' ') else ' ' for c in heading])
     words = [x for x in letters_only.split(" ") if len(x) > 0]
-    stemmed_words = [stem(x) for x in words]
-    return ' '.join(stemmed_words)
+    return ' '.join(words)
 
 
-def X_for_stemmer(city_col, section_col, heading_col, stemmer):
-    stemmed = heading_col.str.lower().apply(lambda x: normalize_heading(x, stemmer))
-    count_transformation = CountVectorizer(ngram_range=(1, 2)).fit(stemmed)
-    return hstack([np.array([city_col, section_col]).T, count_transformation.transform(stemmed)])
+def stem_words(heading, stemmer):
+    words = heading.split(' ')
+    return ' '.join(stemmer(w) for w in words)
 
 
 with open("data.json") as f:
@@ -45,7 +41,9 @@ with open("data.json") as f:
     city_encoder = LabelEncoder().fit(df.city)
     section_encoder = LabelEncoder().fit(df.section)
 
-    nltk.download("wordnet")
-    wordnet = WordNetLemmatizer()
-    X_big = X_for_stemmer(city_encoder.transform(df.city), section_encoder.transform(df.section), df.heading, stemmer=wordnet.lemmatize)
-    X = X_big
+    no_punctuation = df.heading.str.lower().apply(drop_punctuation)
+
+    count_transformation = CountVectorizer(ngram_range=(1, 2), binary=True).fit(no_punctuation)
+    X = hstack([np.array([city_encoder.transform(df.city),
+                          section_encoder.transform(df.section)]).T,
+                          count_transformation.transform(no_punctuation)])
