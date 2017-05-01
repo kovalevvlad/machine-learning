@@ -2,12 +2,10 @@ import pandas as pd
 from StringIO import StringIO
 from scipy.sparse import hstack
 import numpy as np
-import inflect
-
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.preprocessing import LabelEncoder
-
-inflect_engine = inflect.engine()
+from nltk.stem.wordnet import WordNetLemmatizer
+import nltk
 
 
 def read_stream(s):
@@ -41,9 +39,23 @@ with open("data.json") as f:
     city_encoder = LabelEncoder().fit(df.city)
     section_encoder = LabelEncoder().fit(df.section)
 
-    no_punctuation = df.heading.str.lower().apply(drop_punctuation)
+    subject_length = df.heading.str.len().astype(np.float32)
+    number_of_punctuation_chars = df.heading.str.count("[^a-zA-Z ]").astype(np.float32)
+    ratio_of_punctuation_chars = number_of_punctuation_chars / subject_length
+    number_of_capital_chars = df.heading.str.count("[A-Z]").astype(np.float32)
+    ratio_of_capital_chars = number_of_capital_chars / subject_length
 
-    count_transformation = CountVectorizer(ngram_range=(1, 2), binary=True).fit(no_punctuation)
+    no_punctuation = df.heading.str.lower().apply(drop_punctuation)
+    nltk.download("wordnet")
+    wordnet = WordNetLemmatizer()
+    stemmed = no_punctuation.apply(lambda x: stem_words(x, wordnet.lemmatize))
+
+    count_transformation = CountVectorizer(ngram_range=(1, 3), binary=True).fit(stemmed)
     X = hstack([np.array([city_encoder.transform(df.city),
-                          section_encoder.transform(df.section)]).T,
-                          count_transformation.transform(no_punctuation)])
+                          section_encoder.transform(df.section),
+                          subject_length,
+                          number_of_capital_chars,
+                          number_of_punctuation_chars,
+                          ratio_of_capital_chars,
+                          ratio_of_punctuation_chars]).T,
+                count_transformation.transform(stemmed)])
