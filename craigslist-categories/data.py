@@ -33,11 +33,10 @@ def stem_words(heading, stemmer):
 with open("data.json") as f:
     df = read_stream(f)
 
-    category_encoder = LabelEncoder().fit(df.category)
-    y = category_encoder.transform(df.category)
+    y = LabelEncoder().fit_transform(df.category)
 
-    city_encoder = LabelEncoder().fit(df.city)
-    section_encoder = LabelEncoder().fit(df.section)
+    city_feature_transform = CountVectorizer(token_pattern='.+')
+    section_feature_transform = CountVectorizer(token_pattern='.+')
 
     subject_length = df.heading.str.len().astype(np.float32)
     number_of_punctuation_chars = df.heading.str.count("[^a-zA-Z ]").astype(np.float32)
@@ -50,12 +49,12 @@ with open("data.json") as f:
     wordnet = WordNetLemmatizer()
     stemmed = no_punctuation.apply(lambda x: stem_words(x, wordnet.lemmatize))
 
-    count_transformation = CountVectorizer(ngram_range=(1, 3), binary=True).fit(stemmed)
-    X = hstack([np.array([city_encoder.transform(df.city),
-                          section_encoder.transform(df.section),
-                          subject_length,
+    count_transformation = CountVectorizer(ngram_range=(1, 3), binary=True)
+    X = hstack([np.array([subject_length,
                           number_of_capital_chars,
                           number_of_punctuation_chars,
                           ratio_of_capital_chars,
                           ratio_of_punctuation_chars]).T,
-                count_transformation.transform(stemmed)])
+                city_feature_transform.fit_transform(df.city),
+                section_feature_transform.fit_transform(df.section),
+                count_transformation.fit_transform(stemmed)])
