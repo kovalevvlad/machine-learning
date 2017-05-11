@@ -3,7 +3,7 @@ from sklearn.feature_selection import SelectFromModel
 from sklearn.svm import LinearSVC
 from sklearn.svm import SVC
 
-from data import X, y
+from data import X, y, feature_ix_to_name
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
@@ -15,6 +15,9 @@ for i in range(5):
     # Feature selection
     svc = LinearSVC(C=0.1, dual=False)
     svc.fit(X_train, y_train)
+    feature_importance = pd.Series(svc.coef_.sum(axis=0))
+    feature_importance.sort()
+    most_important_features = [(feature_ix_to_name(ix), importance) for ix, importance in list(feature_importance.tail(10).iteritems())]
     feature_selector = SelectFromModel(svc, prefit=True, threshold=0.2)
     X_train_reduced = feature_selector.transform(X_train)
     X_test_reduced = feature_selector.transform(X_test)
