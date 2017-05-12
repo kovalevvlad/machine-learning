@@ -42,6 +42,8 @@ plt.show()
 # Plot some learning graphs
 feature_selection_step = ('select_features', SelectFromModel(LinearSVC()))
 
+# NOTE: hyper-parameter tuning doesn't happen because every parameter has a single value specified at the moment.
+# This is to speed up the plotting process. For a more comprehensive result, modify the hyper-parameter ranges.
 models_with_params = {
     'Random Trees': (ExtraTreesClassifier(), {'n_estimators': [50]}),
     'SVC RBF': (SVC(), {'C': [1000.0]}),
