@@ -6,6 +6,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.preprocessing import LabelEncoder, scale
 from nltk.stem.wordnet import WordNetLemmatizer
 import nltk
+from sklearn.preprocessing import MinMaxScaler
 
 
 def key_for_value(dictionary, value):
@@ -63,11 +64,11 @@ with open("data.json") as f:
     city_features = city_feature_transform.fit_transform(df.city)
     section_features = section_feature_transform.fit_transform(df.section)
     title_word_features = title_feature_transform.fit_transform(stemmed)
-    adhoc_features = scale(np.array([title_length,
-                                     number_of_capital_chars,
-                                     number_of_punctuation_chars,
-                                     ratio_of_capital_chars,
-                                     ratio_of_punctuation_chars]).T)
+    adhoc_features = MinMaxScaler().fit_transform(np.array([title_length,
+                                                            number_of_capital_chars,
+                                                            number_of_punctuation_chars,
+                                                            ratio_of_capital_chars,
+                                                            ratio_of_punctuation_chars]).T)
 
     X = hstack([adhoc_features,
                 city_features,
