@@ -14,6 +14,7 @@ def transform_raw_feature_df(df_raw):
     category_feature_names = sorted(set(df.columns.values) - set(magnitude_feature_names))
 
     # TODO: Deal with hidden NANs (e.g. PoolArea = 0)
+    # TODO: convert pseudo-categorical features (e.g. [poor, average, good, excellent] -> [0, 1, 2, 3]) to magnitude features
     magnitude_features = df[magnitude_feature_names].fillna(0)
     scaled_magnitude_features = StandardScaler().fit_transform(magnitude_features.values)
 
@@ -43,6 +44,9 @@ df_test = pd.read_csv(test_file)
 df_train = pd.read_csv(train_file)
 
 y_train = df_train.SalePrice.values
+y_scaler = StandardScaler()
+y_train_scaled = y_scaler.fit_transform(y_train)
+
 del df_train['SalePrice']
 X_train, train_feature_names = transform_raw_feature_df(df_train)
 X_test, _ = transform_raw_feature_df(df_test)

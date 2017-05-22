@@ -2,20 +2,19 @@
 
 This projects solves the Kaggle House Prices problem
 which is available [on their website](https://www.kaggle.com/c/house-prices-advanced-regression-techniques).
+In addition, I perform analysis of the dataset.
 
-### Analysis
-
-#### MDS
+### MDS Transform Plot
 To get a better understanding of the data let's reduce the dataset to
 2 dimensions and plot it. MDS algorithm seems to produce very good results for
 the dataset - here is what we get:
 
 ![MDS](MDS.png)
 
-From the plot it can seen that there is a clear pattern in the data
-(notice the strong gradient from low price on one end of the plot to
-high price on the other end). This suggests that we should be able to
-accurately predict the house price from the current features.
+From the plot it can seen that there is a clear pattern in the data, even
+in 2 dimensions (notice the strong gradient from low price on one end
+of the plot to high price on the other end). This suggests that we
+should be able to accurately predict the house price from the current features.
 
 ### Feature Analysis
 To analyse the features of the dataset, I have trained a linear SVM and
@@ -56,3 +55,16 @@ Having a house in a commercial zone greatly reduces its price.
 As one can see, having a "common brick" exterior, shed roof, excellent
 roof quality and an unfurnished garage seem to have no impact on the house
 price.
+
+### Predicting the House Price
+
+#### Estimator Perfomance
+
+I have compiled a comparison of a number of various predictors for the
+house price data-set for a range of hyper-parameter values.
+
+![Predictor Performance](estimator_performance.png)
+
+From the graphs, it is clear that RBF-kernel SVM and neural nets have
+the best performance. Hence, I shall be concentrating on these 2
+predictors later in my analysis to achieve the best prediction performance.
