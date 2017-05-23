@@ -63,7 +63,7 @@ sorted_feature_weight_plot.set_xlabel("Feature ID")
 plt.show()
 
 
-# Analyse estimator performance
+# Estimator performance analysis
 
 # As defined by https://www.kaggle.com/wiki/RootMeanSquaredLogarithmicError
 def log_mean_square_error(ground_truth_scaled, predictions_scaled):
@@ -78,7 +78,19 @@ def log_mean_square_error(ground_truth_scaled, predictions_scaled):
 lms_scorer = make_scorer(log_mean_square_error, greater_is_better=False)
 
 
-def plot_score_heatmaps(grid_searches):
+def round_with_sig_figs(n, x):
+    round_to_digits = list(-np.floor(np.log10(x)) + (n - 1))
+    return np.array([round(float(x_), int(round_to_digits_)) for x_, round_to_digits_ in zip(x, round_to_digits)])
+
+
+def round_floats(possibly_float_array):
+    if np.issubdtype(possibly_float_array.dtype, np.number):
+        return round_with_sig_figs(3, possibly_float_array)
+    else:
+        return possibly_float_array
+
+
+def plot_score_heatmaps(grid_searches, title):
     subplot_count = len(grid_searches)
     n_columns = int(np.ceil(np.sqrt(float(subplot_count))))
     n_rows = subplot_count / n_columns + (0 if subplot_count % n_columns == 0 else 1)
@@ -98,7 +110,7 @@ def plot_score_heatmaps(grid_searches):
             ax.text(0.5, best_score_ix + 0.5, '{0:.3f}'.format(float(im_data[best_score_ix])))
             ax.set_ylabel(param_name)
             # for some reason matplotlib refuses to display the first tick... shift it along!
-            ticks = df[param_name].values
+            ticks = round_floats(df[param_name].values)
             ax.set_yticklabels(ticks)
             ax.set_yticks(0.5 + np.arange(len(ticks)))
             ax.axes.get_xaxis().set_visible(False)
@@ -113,10 +125,10 @@ def plot_score_heatmaps(grid_searches):
             ax.set_ylabel(ix_param)
             ax.set_xlabel(col_param)
             # for some reason matplotlib refuses to display the first tick... shift it along!
-            yticks = pivoted_df.index.values
+            yticks = round_floats(pivoted_df.index.values)
             ax.set_yticklabels(yticks)
             ax.set_yticks(0.5 + np.arange(len(yticks)))
-            xticks = pivoted_df.columns.levels[1]
+            xticks = round_floats(pivoted_df.columns.levels[1])
             has_long_labels = xticks.dtype.name == 'object' and max([len(str(tick)) for tick in xticks]) > 5
             rotation = 15. if has_long_labels else 'horizontal'
             alignment = 'right' if has_long_labels else 'center'
@@ -131,7 +143,7 @@ def plot_score_heatmaps(grid_searches):
     for hidden_axis in hidden_axes:
         hidden_axis.set_visible(False)
 
-    plt.suptitle('Estimator Performance')
+    plt.suptitle(title)
     plt.subplots_adjust(wspace=0.6, hspace=0.6)
     plt.show()
 
@@ -151,4 +163,19 @@ clfs = {
     'Neural Net': GridSearchCV(MLPRegressor(solver='lbfgs'), param_grid={'alpha': 10.0 ** -np.arange(0, 10), 'hidden_layer_sizes': [(50, 25, 15, 10), (50, 20, 15, 10, 5), (40, 25, 18, 12, 6), (38, 22, 16, 11, 8, 5)]}, **grid_search_kwargs),
 }
 
-plot_score_heatmaps(clfs)
+plot_score_heatmaps(clfs, "Predictor Performance Comparison")
+
+
+# RBF SVM in detail
+rbf_searches = {'RBF SVM': GridSearchCV(svm.SVR(), param_grid={'gamma': 10 ** np.arange(-3.7, -2.3, 0.1), 'C': 10 ** np.arange(0.3, 1.7, 0.1)}, **grid_search_kwargs)}
+plot_score_heatmaps(rbf_searches, "Fine Grained Hyper-Parameter Tuning")
+
+# NN in detail
+nn_searches = {
+    'Neural Net': GridSearchCV(MLPRegressor(solver='lbfgs'),
+                               param_grid={
+                                   'alpha': 10.0 ** -np.arange(1.0, 3.2, 0.2),
+                                   'hidden_layer_sizes': [(100,), (75, 25), (50, 25, 15, 10), (50, 20, 15, 10, 5), (40, 25, 18, 12, 6), (38, 22, 16, 11, 8, 5)]
+                               }, **grid_search_kwargs)
+}
+plot_score_heatmaps(nn_searches, "Fine Grained Hyper-Parameter Tuning")

@@ -68,3 +68,19 @@ house price data-set for a range of hyper-parameter values.
 From the graphs, it is clear that RBF-kernel SVM and neural nets have
 the best performance. Hence, I shall be concentrating on these 2
 predictors later in my analysis to achieve the best prediction performance.
+
+#### RBF SVM Fine Tuning
+
+Now that we know what range the best hyper-parameters for the RBF SVM
+lie in, we can perform a more comprehensive search:
+
+![RBF SVM hyper-parameters tuning](rbf_svm.png)
+
+#### Neural Net Fine Tuning
+
+![Neural Net](nn.png)
+
+As can be seen from the more detailed neural network prediction performance
+plot, the predictor is significantly more noisy than RBF SVM. Nevertheless,
+it is clear that the 1 and 2 layer neural nets presented in the comparison
+underperform.
