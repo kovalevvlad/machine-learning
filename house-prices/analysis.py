@@ -1,181 +1,134 @@
-from matplotlib import cm
-from sklearn.ensemble import AdaBoostRegressor, ExtraTreesClassifier
+from sklearn.ensemble import AdaBoostRegressor
 from sklearn.ensemble import ExtraTreesRegressor
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.feature_selection import mutual_info_regression
 from sklearn.linear_model import ElasticNet, Lasso, Ridge
-from sklearn.metrics import make_scorer
 from sklearn.model_selection import GridSearchCV
 from sklearn.neural_network import MLPRegressor
-from sklearn.preprocessing import scale
-from sklearn.svm import NuSVR
+from sklearn.pipeline import FeatureUnion, Pipeline
+from sklearn.preprocessing import Imputer
+import seaborn as sns
 
-from data.data import X_train, y_train, train_feature_names, y_train_scaled, y_scaler
+import plot
+from data.data import y_train, y_transform, predictor_pipeline, df_train, df_test, NamedTransformerMixin, raw_feature_extraction_stage
 import matplotlib.pyplot as plt
 from sklearn import manifold, svm
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor
 import pandas as pd
 import numpy as np
+from scoring import rmse_scorer
 
 
-def plot_features_with_weight(features, title):
-    negative_plot = (pd.DataFrame(features)[1] < 0).any()
-    ylim = (-0.25, 0) if negative_plot else (0, 0.25)
-    feature_plot = pd.DataFrame(features).set_index(0).plot(kind='bar', legend=False, ylim=ylim)
-    feature_plot.set_title(title)
-    feature_plot.set_ylabel('Feature Weight')
-    feature_plot.set_xlabel('Feature')
-    feature_plot.tight_layout()
-    plt.show()
+def recursive_transform_to_output_feature_names(transform):
+    if isinstance(transform, FeatureUnion):
+        return [feature_name for t in transform.transformer_list for feature_name in recursive_transform_to_output_feature_names(t[1])]
+    elif isinstance(transform, Pipeline):
+        return recursive_transform_to_output_feature_names(transform.steps[0][1])
+    else:
+        assert isinstance(transform, NamedTransformerMixin)
+        return transform.feature_names()
 
 
-TOP_FEATURE_COUNT = 30
+# Extracting raw features using the initial data processing staged
+# Imputer is necessary here since MDS cannot handle NANs
+raw_feature_extraction_stage_with_imputation = Pipeline([('raw', raw_feature_extraction_stage), ('impute', Imputer())])
+raw_features = raw_feature_extraction_stage_with_imputation.fit_transform(df_train.values, y_train)
 
-# MDS Plot
+# # MDS Plot
 mds = manifold.MDS(n_jobs=-1, max_iter=100)
-X_mds = pd.DataFrame(mds.fit_transform(X_train), columns=('x', 'y'))
-
-plot = plt.scatter(X_mds.x, X_mds.y, c=y_train)
+X_mds = pd.DataFrame(mds.fit_transform(raw_features), columns=('x', 'y'))
+mds_plot = plt.scatter(X_mds.x, X_mds.y, c=y_train, cmap='winter')
 plt.axis('off')
 plt.suptitle("2D MDS Transform")
-colorbar = plt.colorbar(plot)
-colorbar.set_label("House Price")
+colorbar = plt.colorbar(mds_plot)
+colorbar.set_label("House Price (normalized)")
+plt.show()
+
+# Normalizing house prices
+y_train_unscaled = y_transform.inverse_transform(y_train)
+pd.Series(y_train_unscaled[:, 0]).hist()
+plt.title("House Prices Before Normalization")
+plt.show()
+
+pd.Series(y_train[:, 0]).hist()
+plt.title("House Prices After Normalization")
 plt.show()
 
 # Identifying the most important features
-# TODO: Rotate graphs to make the feature names more readable.
-feature_importance_model = svm.LinearSVR(C=0.03)
-feature_importance_model.fit(X_train, y_train_scaled)
+raw_feature_names = recursive_transform_to_output_feature_names(raw_feature_extraction_stage_with_imputation)
+mutual_info = pd.Series(mutual_info_regression(raw_features, y_train), index=raw_feature_names).sort_values()
 
-feature_importance = pd.Series(feature_importance_model.coef_).sort_values()
-abs_feature_importance = feature_importance.abs().sort_values()
+TOP_FEATURE_COUNT = 30
+most_important_features = mutual_info.tail(TOP_FEATURE_COUNT)
+plot.features_with_weight(most_important_features, 'Top {} Features with the Most Predictive Power'.format(TOP_FEATURE_COUNT))
 
-most_important_positive_features = [(train_feature_names[ix], importance) for ix, importance in list(feature_importance.tail(TOP_FEATURE_COUNT).iteritems())]
-most_important_negative_features = [(train_feature_names[ix], importance) for ix, importance in list(feature_importance.head(TOP_FEATURE_COUNT).sort_values(ascending=False).iteritems())]
-least_important_features = [(train_feature_names[ix], importance) for ix, importance in list(abs_feature_importance.head(TOP_FEATURE_COUNT).iteritems())]
-
-plot_features_with_weight(most_important_positive_features, 'Top {} Features with the Most Positive Price Impact'.format(TOP_FEATURE_COUNT))
-plot_features_with_weight(most_important_negative_features, 'Top {} Features with the Most Negative Price Impact'.format(TOP_FEATURE_COUNT))
-plot_features_with_weight(least_important_features, 'Top {} Features with the Least Price Impact'.format(TOP_FEATURE_COUNT))
-
-# Plot sorted feature weights
-sorted_feature_weight_plot = pd.Series(data=abs_feature_importance.values, index=range(len(feature_importance))).plot(grid=True, title="Sorted Feature Weights")
-sorted_feature_weight_plot.set_ylabel("Feature Weight")
-sorted_feature_weight_plot.set_xlabel("Feature ID")
+# Plot features sorted by mutual info
+sorted_feature_weight_plot = pd.Series(data=mutual_info.values, index=reversed(range(len(mutual_info)))).plot(grid=True, title="Features Sorted by their Mutual Information with the House Price")
+sorted_feature_weight_plot.set_ylabel("Feature Mutual Information with the House Price")
+sorted_feature_weight_plot.set_xlabel("Feature Mutual Information Rank")
 plt.show()
 
+# Feature Correlation Analysis
+corr_matrix = pd.DataFrame(raw_features, columns=raw_feature_names)[most_important_features.index.values].corr().abs()
+corr_plot = sns.heatmap(corr_matrix, square=True)
+corr_plot.set_xticklabels(corr_matrix.columns.values, rotation=30., horizontalalignment='right')
+corr_plot.set_yticklabels(reversed(corr_matrix.index.values), rotation=0)
+plt.show()
 
-# Estimator performance analysis
+# Drop blacklisted features
+blacklisted_features = [
+        # correlated with GarageCars and the latter has a higher correlation coeff with the house price
+        # TODO: resolve the following correlated feature pairs:
+        # - Fireplaces & Fireplaces: na,
+        # - ExterQual: ta & ExterQual: gd
+        # - scalarized ExterQual & ExterQual: ta
+        'GarageArea',
+        # All of the below have too many missing values
+        'MiscFeature']
 
-# As defined by https://www.kaggle.com/wiki/RootMeanSquaredLogarithmicError
-def log_mean_square_error(ground_truth_scaled, predictions_scaled):
-    # Unscaling the values
-    predictions = y_scaler.inverse_transform(predictions_scaled)
-    ground_truth = y_scaler.inverse_transform(ground_truth_scaled)
-    # Actual error calculation
-    s = ((np.log(np.abs(predictions) + 1) - np.log(ground_truth + 1)) ** 2.0).sum()
-    return np.sqrt(s / float(len(predictions)))
+for blacklisted_feature in blacklisted_features:
+    del df_train[blacklisted_feature]
+    del df_test[blacklisted_feature]
 
-
-lms_scorer = make_scorer(log_mean_square_error, greater_is_better=False)
-
-
-def round_with_sig_figs(n, x):
-    round_to_digits = list(-np.floor(np.log10(x)) + (n - 1))
-    return np.array([round(float(x_), int(round_to_digits_)) for x_, round_to_digits_ in zip(x, round_to_digits)])
-
-
-def round_floats(possibly_float_array):
-    if np.issubdtype(possibly_float_array.dtype, np.number):
-        return round_with_sig_figs(3, possibly_float_array)
-    else:
-        return possibly_float_array
-
-
-def plot_score_heatmaps(grid_searches, title):
-    subplot_count = len(grid_searches)
-    n_columns = int(np.ceil(np.sqrt(float(subplot_count))))
-    n_rows = subplot_count / n_columns + (0 if subplot_count % n_columns == 0 else 1)
-    fig, axes = plt.subplots(nrows=n_rows, ncols=n_columns, squeeze=False)
-
-    for ax, (estimator_name, grid_search) in zip(axes.flat, grid_searches.items()):
-        print "Fitting {}".format(estimator_name)
-        grid_search.fit(X_train, y_train_scaled)
-        df = pd.DataFrame([dict(param_dict.items() + [('score', score)]) for score, param_dict in zip(grid_search.cv_results_['mean_test_score'], grid_search.cv_results_['params'])])
-        params = list(set(df.columns) - {'score'})
-        assert len(params) in (1, 2)
-        if len(params) == 1:
-            param_name = params[0]
-            im_data = np.array([df.score]).T
-            cax = ax.imshow(im_data, vmin=df.score.min(), vmax=df.score.max(), aspect='auto', extent=(0, 1, 0, len(df.score)), origin='lower', cmap='plasma')
-            best_score_ix = im_data.argmax()
-            ax.text(0.5, best_score_ix + 0.5, '{0:.3f}'.format(float(im_data[best_score_ix])))
-            ax.set_ylabel(param_name)
-            # for some reason matplotlib refuses to display the first tick... shift it along!
-            ticks = round_floats(df[param_name].values)
-            ax.set_yticklabels(ticks)
-            ax.set_yticks(0.5 + np.arange(len(ticks)))
-            ax.axes.get_xaxis().set_visible(False)
-        if len(params) == 2:
-            ix_param = params[0]
-            col_param = params[1]
-            pivoted_df = df.pivot(index=ix_param, columns=col_param)
-            im_data = pivoted_df.values
-            cax = ax.imshow(im_data, vmin=df.score.min(), vmax=df.score.max(), aspect='auto', extent=(0, len(pivoted_df.columns.levels[1]), 0, len(pivoted_df.index)), origin='lower', cmap='plasma')
-            best_score_x, best_score_y = np.unravel_index(im_data.argmax(), im_data.shape)
-            ax.text(best_score_y + 0.1, best_score_x + 0.5, '{0:.3f}'.format(float(im_data[best_score_x, best_score_y])))
-            ax.set_ylabel(ix_param)
-            ax.set_xlabel(col_param)
-            # for some reason matplotlib refuses to display the first tick... shift it along!
-            yticks = round_floats(pivoted_df.index.values)
-            ax.set_yticklabels(yticks)
-            ax.set_yticks(0.5 + np.arange(len(yticks)))
-            xticks = round_floats(pivoted_df.columns.levels[1])
-            has_long_labels = xticks.dtype.name == 'object' and max([len(str(tick)) for tick in xticks]) > 5
-            rotation = 15. if has_long_labels else 'horizontal'
-            alignment = 'right' if has_long_labels else 'center'
-            ax.set_xticklabels(xticks, rotation=rotation, horizontalalignment=alignment)
-            ax.set_xticks(0.5 + np.arange(len(xticks)))
-
-        ax.set_title(estimator_name)
-        colorbar = plt.colorbar(cax, ax=ax)
-        colorbar.set_label("Cross-Validation Score")
-
-    hidden_axes = axes.flat[len(grid_searches):]
-    for hidden_axis in hidden_axes:
-        hidden_axis.set_visible(False)
-
-    plt.suptitle(title)
-    plt.subplots_adjust(wspace=0.6, hspace=0.6)
+# Outlier analysis
+for feature_name in ['OverallQual', 'GrLivArea', 'GarageCars', 'YearBuilt']:
+    df_train[feature_name].hist(bins=25)
+    plt.title(feature_name)
     plt.show()
 
-
-grid_search_kwargs = {'n_jobs': -1, 'verbose': 2, 'scoring': lms_scorer}
+# Estimator performance analysis
+grid_search_kwargs = {'n_jobs': -1, 'verbose': 5, 'scoring': rmse_scorer}
 clfs = {
-    'Linear SVM': GridSearchCV(svm.LinearSVR(), param_grid={'C': 10.0 ** np.arange(-4, 2)}, **grid_search_kwargs),
-    'RBF SVM': GridSearchCV(svm.SVR(), param_grid={'C': 10.0 ** np.arange(-2, 5), 'gamma': 10.0 ** np.arange(-5, 0)}, **grid_search_kwargs),
-    'Elastic Net': GridSearchCV(ElasticNet(), param_grid={'alpha': 10.0 ** np.arange(-5, 1), 'l1_ratio': np.arange(0.1, 1.0, 0.2)}, **grid_search_kwargs),
-    'Random Forrest': GridSearchCV(RandomForestRegressor(), param_grid={'n_estimators': [10, 25, 50, 100]}, **grid_search_kwargs),
-    'Ada Boost': GridSearchCV(AdaBoostRegressor(), param_grid={'n_estimators': [10, 25, 50, 100], 'learning_rate': 10.0 ** np.arange(-2, 2)}, **grid_search_kwargs),
-    'Ridge': GridSearchCV(Ridge(), param_grid={'alpha': 10.0 ** np.arange(0, 6)}, **grid_search_kwargs),
-    'Lasso': GridSearchCV(Lasso(), param_grid={'alpha': 10.0 ** np.arange(-5, 1)}, **grid_search_kwargs),
-    'Extra Random Forrest': GridSearchCV(ExtraTreesRegressor(), param_grid={'n_estimators': [10, 25, 50, 100]}, **grid_search_kwargs),
-    'Poly SVM': GridSearchCV(svm.SVR(kernel='poly'), param_grid={'C': 10.0 ** np.arange(-1, 6), 'gamma': 10.0 ** np.arange(-3, 2)}, **grid_search_kwargs),
-    'Sigmoid SVM': GridSearchCV(svm.SVR(kernel='sigmoid'), param_grid={'C': 10.0 ** np.arange(-3, 4), 'gamma': 10.0 ** np.arange(-6, -1)}, **grid_search_kwargs),
-    'Neural Net': GridSearchCV(MLPRegressor(solver='lbfgs'), param_grid={'alpha': 10.0 ** -np.arange(0, 10), 'hidden_layer_sizes': [(50, 25, 15, 10), (50, 20, 15, 10, 5), (40, 25, 18, 12, 6), (38, 22, 16, 11, 8, 5)]}, **grid_search_kwargs),
+    'Gradient Boosting': GridSearchCV(predictor_pipeline, param_grid={'predictor': [GradientBoostingRegressor()], 'predictor__max_depth': [1, 2, 3, 4], 'predictor__loss': ['ls', 'lad', 'huber', 'quantile']}, **grid_search_kwargs),
+    'Linear SVM': GridSearchCV(predictor_pipeline, param_grid={'predictor': [svm.LinearSVR()], 'predictor__C': 10.0 ** np.arange(-6, 2)}, **grid_search_kwargs),
+    'RBF SVM': GridSearchCV(predictor_pipeline, param_grid={'predictor': [svm.SVR(cache_size=1000)], 'predictor__C': 10.0 ** np.arange(-1, 5), 'predictor__gamma': 10.0 ** np.arange(-5, 0)}, **grid_search_kwargs),
+    'Elastic Net': GridSearchCV(predictor_pipeline, param_grid={'predictor': [ElasticNet()], 'predictor__alpha': 10.0 ** np.arange(-5, 1)}, **grid_search_kwargs),
+    'Random Forrest': GridSearchCV(predictor_pipeline, param_grid={'predictor': [RandomForestRegressor()], 'predictor__n_estimators': [10, 25, 50, 100]}, **grid_search_kwargs),
+    'Ada Boost': GridSearchCV(predictor_pipeline, param_grid={'predictor': [AdaBoostRegressor()], 'predictor__n_estimators': [10, 25, 50, 100]}, **grid_search_kwargs),
+    'Ridge': GridSearchCV(predictor_pipeline, param_grid={'predictor': [Ridge()], 'predictor__alpha': 10.0 ** np.arange(-2, 7)}, **grid_search_kwargs),
+    'Lasso': GridSearchCV(predictor_pipeline, param_grid={"predictor": [Lasso()], 'predictor__alpha': 10.0 ** np.arange(-6, 0)}, **grid_search_kwargs),
+    'Extra Random Forrest': GridSearchCV(predictor_pipeline, param_grid={"predictor": [ExtraTreesRegressor()], 'predictor__n_estimators': [10, 25, 50, 100]}, **grid_search_kwargs),
+    'Poly SVM': GridSearchCV(predictor_pipeline, param_grid={"predictor": [svm.SVR(kernel='poly')], 'predictor__C': 10.0 ** np.arange(-3, 4), 'predictor__gamma': 10.0 ** np.arange(-4, 1)}, **grid_search_kwargs),
+    'Sigmoid SVM': GridSearchCV(predictor_pipeline, param_grid={"predictor": [svm.SVR(kernel='sigmoid')], 'predictor__C': 10.0 ** np.arange(-2, 3), 'predictor__gamma': 10.0 ** np.arange(-5, 0)}, **grid_search_kwargs),
+    'Neural Net': GridSearchCV(predictor_pipeline, param_grid={"predictor": [MLPRegressor(solver='lbfgs')], 'predictor__alpha': 10.0 ** np.arange(-2, 4), 'predictor__hidden_layer_sizes': [(70,), (35, 35), (65, 5), (45, 17, 8), (38, 22, 16, 11, 8, 5)]}, **grid_search_kwargs),
 }
+plot.score_heatmaps(clfs, "Predictor Performance Comparison", df_train.values, y_train, features_excluded_from_plot=set(['predictor']), rotate_x_axis_by=30., clipping_score=-0.2)
 
-plot_score_heatmaps(clfs, "Predictor Performance Comparison")
-
-
-# RBF SVM in detail
-rbf_searches = {'RBF SVM': GridSearchCV(svm.SVR(), param_grid={'gamma': 10 ** np.arange(-3.7, -2.3, 0.1), 'C': 10 ** np.arange(0.3, 1.7, 0.1)}, **grid_search_kwargs)}
-plot_score_heatmaps(rbf_searches, "Fine Grained Hyper-Parameter Tuning")
-
-# NN in detail
-nn_searches = {
-    'Neural Net': GridSearchCV(MLPRegressor(solver='lbfgs'),
-                               param_grid={
-                                   'alpha': 10.0 ** -np.arange(1.0, 3.2, 0.2),
-                                   'hidden_layer_sizes': [(100,), (75, 25), (50, 25, 15, 10), (50, 20, 15, 10, 5), (40, 25, 18, 12, 6), (38, 22, 16, 11, 8, 5)]
-                               }, **grid_search_kwargs)
-}
-plot_score_heatmaps(nn_searches, "Fine Grained Hyper-Parameter Tuning")
+# RBF SVM Fine Tuning
+plot.score_heatmaps(
+    {
+        'RBF SVM': GridSearchCV(
+            predictor_pipeline,
+            param_grid={
+                'predictor': [svm.SVR(cache_size=1000)],
+                'predictor__C': 10.0 ** np.arange(0, 3.1, 0.3),
+                'predictor__gamma': 10.0 ** np.arange(-4, -1.9, 0.3)
+            },
+            **grid_search_kwargs),
+    },
+    "RBF SVM Performance Fine Tuning",
+    df_train.values,
+    y_train,
+    features_excluded_from_plot=set(['predictor']),
+    rotate_x_axis_by=30.,
+    clipping_score=-0.2)
