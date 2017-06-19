@@ -39,7 +39,7 @@ median neighbourhood house price and the living area above ground.
 
 Surprisingly though, the number of fireplaces and
 their quality (scalarized FireplacesQu and Fireplaces) seem to have a
-significant impact on the house price also.
+significant predictive power when it comes to estimating the house price.
 
 #### Feature Discriminative Power Overview
 
