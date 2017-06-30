@@ -3,3 +3,4 @@ venv/
 __cache__/
 *.iml
 .idea/
+raw_data/
