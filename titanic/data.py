@@ -160,8 +160,6 @@ df_train = read_csv("train.csv")
 y_train = df_train.Survived
 df_test = read_csv("test.csv")
 
-title(df_train.Name, df_train.Sex)
-
 feature_extractor = DataFrameMapper([
     (['Pclass'], OneHotEncoder()),
     (['Sex'], LabelEncoder()),

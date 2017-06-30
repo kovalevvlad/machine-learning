@@ -2,6 +2,8 @@ import pandas as pd
 import pkg_resources
 import os
 
+from sklearn_pandas import DataFrameMapper
+
 
 def raw_data_file_path(file_name):
     file_path = pkg_resources.resource_filename(__name__, os.path.join("raw_data", file_name))
@@ -36,3 +38,4 @@ test_variants = read_csv("test_variants.zip")
 test_text = read_csv("test_text.zip", sep="\|\|", custom_header=['ID', 'Text'])
 merged_test_data = pd.merge(test_variants, test_text, on="ID", how='outer')
 test_df = merged_train_data[['Text', 'Gene', 'Variation']]
+test_id = merged_test_data['ID']
