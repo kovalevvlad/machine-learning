@@ -3,4 +3,7 @@ venv/
 __cache__/
 *.iml
 .idea/
-raw_data/
+
+# Excluding huge files for the cancer project
+cancer/raw_data/*.zip
+cancer/raw_data/*.feather

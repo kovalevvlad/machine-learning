@@ -1,13 +1,12 @@
-from sklearn.model_selection import GridSearchCV
-from sklearn.naive_bayes import MultinomialNB
+import pandas as pd
+from lightgbm import LGBMClassifier
+from sklearn.model_selection import cross_val_score
 from sklearn.pipeline import Pipeline
 
 from data import train_df, train_y
 from feature_extractor import feature_extractor
 
 
-pipeline = Pipeline([("features", feature_extractor), ("estimator", MultinomialNB())])
-search = GridSearchCV(pipeline, param_grid={"estimator__alpha": [0.25, 0.5, 0.75, 1.]}, scoring='neg_log_loss', n_jobs=-1)
-search.fit(train_df.head(1000), train_y.head(1000).values)
-print search.best_score_
-print search.best_params_
+pipeline = Pipeline([("features", feature_extractor), ("estimator", LGBMClassifier(max_depth=5, objective='multi_logloss'))])
+cv_scores = pd.Series(cross_val_score(pipeline, train_df.head(1000), train_y.head(1000).values, scoring="neg_log_loss", cv=4, n_jobs=-1, verbose=5))
+print "{:.2f} +- {:.2f}".format(cv_scores.mean(), 2 * cv_scores.std())

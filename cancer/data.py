@@ -2,8 +2,6 @@ import pandas as pd
 import pkg_resources
 import os
 
-from sklearn_pandas import DataFrameMapper
-
 
 def raw_data_file_path(file_name):
     file_path = pkg_resources.resource_filename(__name__, os.path.join("raw_data", file_name))
