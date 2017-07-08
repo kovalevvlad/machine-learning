@@ -2,13 +2,11 @@ from sklearn.base import BaseEstimator
 from sklearn.base import TransformerMixin
 from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.preprocessing import LabelEncoder
 from sklearn_pandas import DataFrameMapper
 import pandas as pd
 import gene_info
-import numpy as np
-from categorical_one_hot import CategoricalOneHotEncoder
 
 
 class GeneFeatureExtractor(BaseEstimator, TransformerMixin):
@@ -22,7 +20,7 @@ class GeneFeatureExtractor(BaseEstimator, TransformerMixin):
         input_gene_series = pd.Series(X)
         unknown_genes = set(input_gene_series.values) - set(gene_info.features.index.values)
         most_common_gene = input_gene_series.value_counts().index[0]
-        input_gene_series.loc[input_gene_series.apply(lambda gene: gene in unknown_genes)] = most_common_gene
+        input_gene_series.loc[input_gene_series.isin(unknown_genes)] = most_common_gene
 
         # Order-preserving join
         input_gene_df = pd.DataFrame({key: input_gene_series.values, "order": range(X.shape[0])})
@@ -38,11 +36,11 @@ class GeneFeatureExtractor(BaseEstimator, TransformerMixin):
 
 class VariationFeatureExtractor(BaseEstimator, TransformerMixin):
     def __init__(self):
-        self.change_variation_transform = DataFrameMapper([
-            ("from_protein", CategoricalOneHotEncoder(allow_nulls=True)),
-            ("to_protein", CategoricalOneHotEncoder(allow_nulls=True)),
-            (["variation_location"], None)])
-        self.variation_type_transform = DataFrameMapper([(["variation_type"], MultiLabelBinarizer())])
+        self.feature_transform = DataFrameMapper([
+            ("from_protein", LabelEncoder()),
+            ("to_protein", LabelEncoder()),
+            ("location", None),
+            ("type", LabelEncoder())])
         self.classes_ = None
 
     @staticmethod
@@ -61,16 +59,16 @@ class VariationFeatureExtractor(BaseEstimator, TransformerMixin):
         # TODO: Keep fusion information in the features
         variation_type.loc[variation.str.endswith(" fusion")] = "fusion"
         variation_type.loc[~variation_type.isin(known_variation_types)] = "other"
-        return pd.DataFrame({"variation_type": variation_type.values})
+        return pd.DataFrame({"type": variation_type.values})
 
     @staticmethod
     def change_variation_features(variation):
         # TODO: What does a * protein mean?
-        change_variation_regex = "(?P<from_protein>[a-z*])(?P<variation_location>[0-9]+)(?P<to_protein>[a-z*])"
+        change_variation_regex = "(?P<from_protein>[a-z*])(?P<location>[0-9]+)(?P<to_protein>[a-z*])"
         change_variation_features = variation.str.extract(change_variation_regex, expand=True)
 
         # filling non-change variations with -1 in this field
-        change_variation_features["variation_location"] = change_variation_features["variation_location"].fillna(-1)
+        change_variation_features["location"] = change_variation_features["location"].fillna(-1)
 
         is_change_variation_vector = variation.str.match(change_variation_regex)
         return change_variation_features, is_change_variation_vector
@@ -80,34 +78,97 @@ class VariationFeatureExtractor(BaseEstimator, TransformerMixin):
         variation = variation.str.lower()
 
         change_variation_features, is_change_variation_vector = self.change_variation_features(variation)
-        change_variation_features_transformed = self.change_variation_transform.transform(change_variation_features)
-
         variation_type = self.variation_type_vector(is_change_variation_vector, variation)
-        variation_type_features = self.variation_type_transform.transform(variation_type)
+        variation_features = pd.concat([variation_type, change_variation_features], axis=1)
+        variation_features_transformed = self.feature_transform.transform(variation_features)
 
-        self.classes_ = self.change_variation_transform.transformed_names_ + self.variation_type_transform.transformed_names_
+        self.classes_ = self.feature_transform.transformed_names_
 
-        return np.hstack([change_variation_features_transformed, variation_type_features])
+        return variation_features_transformed
 
     def fit(self, X, y=None):
         variation = pd.Series(X)
         variation = variation.str.lower()
 
         change_variation_features, is_change_variation_vector = self.change_variation_features(variation)
-        # Only fit on change variations
-        self.change_variation_transform.fit(change_variation_features)
-
         variation_type = self.variation_type_vector(is_change_variation_vector, variation)
-        self.variation_type_transform.fit(variation_type)
+
+        all_features = pd.concat([change_variation_features, variation_type], axis=1)
+        self.feature_transform.fit(all_features)
 
         return self
 
 
-feature_extractor = DataFrameMapper([
-    ('Text', Pipeline([
-        ("vectorize", TfidfVectorizer(ngram_range=(1, 2), max_features=30000, strip_accents="ascii")),
-        ("dim_red", TruncatedSVD(n_components=50, n_iter=25))])),
-    # TODO: These features don't make a big difference for the prediction performance. Why?!
-    ('Gene', GeneFeatureExtractor()),
-    ('Variation', Pipeline([("extract", VariationFeatureExtractor()), ("dim_red", TruncatedSVD(n_components=25, n_iter=10))]))
-])
+class StringLengthTransform(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        pass
+
+    def transform(self, X, y=None, copy=None):
+        strings = pd.Series(X)
+        return strings.str.len().values.reshape((-1, 1))
+
+    def fit(self, X, y=None):
+        return self
+
+    def get_feature_names(self):
+        return ["length"]
+
+
+class StringRegexCountTransform(BaseEstimator, TransformerMixin):
+    def __init__(self, regex):
+        self.regex = regex
+
+    def transform(self, X, y=None, copy=None):
+        strings = pd.Series(X)
+        return strings.str.count(self.regex).values.reshape((-1, 1))
+
+    def fit(self, X, y=None):
+        return self
+
+    def get_feature_names(self):
+        return ["count"]
+
+
+class NamedPipeline(Pipeline):
+    def get_feature_names(self):
+        return self.steps[-1][1].get_feature_names()
+
+
+class NamedTruncatedSVD(TruncatedSVD):
+    def get_feature_names(self):
+        return [str(i) for i in range(self.n_components)]
+
+
+class CompositeFeatureExtractor:
+    def __init__(self):
+        self.feature_extractor = DataFrameMapper([
+            ('Text', FeatureUnion([
+                ("tf-idf", NamedPipeline([("words", TfidfVectorizer(ngram_range=(1, 2), max_features=50000)), ("dim-red", NamedTruncatedSVD(n_components=50, n_iter=10))])),
+                ("text-length", StringLengthTransform()),
+                ("word-count", StringRegexCountTransform(" "))])),
+            # TODO: These features don't make any difference for the prediction performance. Why?!
+            ('Gene', GeneFeatureExtractor()),
+            ('Variation', VariationFeatureExtractor())
+        ], df_out=True)
+        self.categorical_features = None
+
+    def transform(self, X, y=None, copy=None):
+        df = self.feature_extractor.transform(X)
+        non_categorical_features = [c for c in df.columns if c.startswith("Text_") or c.startswith("Gene_family_")] + ["Variation_location"]
+        self.categorical_features = ["Gene_chromosome", "Gene_hand", "Gene_band", "Gene_subband", "Variation_type", "Variation_to_protein", "Variation_from_protein"]
+        unclassified_features = set(df.columns) - set(non_categorical_features + self.categorical_features)
+        unknown_features = set(non_categorical_features + self.categorical_features) - set(df.columns)
+        assert unclassified_features == set(), unclassified_features
+        assert unknown_features == set(), unknown_features
+        for categorical_feature in self.categorical_features:
+            df[categorical_feature] = df[categorical_feature].fillna(-1).astype("category")
+        for non_categorical_feature in non_categorical_features:
+            df[non_categorical_feature] = pd.to_numeric(df[non_categorical_feature])
+        return df
+
+    def fit(self, X, y=None):
+        self.feature_extractor.fit(X)
+        return self
+
+
+feature_extractor = CompositeFeatureExtractor()

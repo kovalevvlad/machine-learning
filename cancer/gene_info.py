@@ -43,23 +43,16 @@ def location_features(gene_df):
     all_location_data['hand'] = (all_location_data['hand'] == "q")
     all_location_data['chromosome'] = all_location_data['chromosome'].apply(lambda chromosome: int(chromosome) if chromosome.isdigit() else (23 if chromosome == "X" else 24))
 
-    transform = DataFrameMapper([
-        (["chromosome"], OneHotEncoder()),
-        (["band"], OneHotEncoder()),
-        (["subband"], OneHotEncoder()),
-        (["hand"], OneHotEncoder())])
-
-    transformed_features = transform.fit_transform(all_location_data)
-    return pd.DataFrame(transformed_features, columns=transform.transformed_names_, index=all_location_data.index)
+    return all_location_data
 
 
-def gene_family_features(gene_info, all_genes):
-    # It makes sense to throw away all gene groups not in the training data right away
-    # This reduces the number of family group features by a factor of 6
-    train_gene_info_subset = pd.merge(gene_info, all_genes, left_on="symbol", right_on="Gene")
-    vectorizer = CountVectorizer(binary=True).fit(train_gene_info_subset.gene_family_id.fillna(""))
+def gene_family_features(gene_info, interesting_genes):
+    # each gene group is mapped to a separate feature. Since we will not touch most of the groups,
+    # only leave the groups present in the training set
+    interesting_gene_info_subset = pd.merge(gene_info, interesting_genes, left_on="symbol", right_on="Gene")
+    vectorizer = CountVectorizer(binary=True).fit(interesting_gene_info_subset.gene_family_id.fillna(""))
     family_group_features = vectorizer.transform(gene_info.gene_family_id.fillna(""))
-    columns = ["gene_family_" + family_id for family_id, _ in sorted(vectorizer.vocabulary_.items(), key=(lambda x: x[1]))]
+    columns = ["family_" + family_id for family_id, _ in sorted(vectorizer.vocabulary_.items(), key=(lambda x: x[1]))]
     return pd.DataFrame(family_group_features.todense(), columns=columns, index=gene_info["symbol"])
 
 

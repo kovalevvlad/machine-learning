@@ -35,5 +35,5 @@ train_y = merged_train_data['Class']
 test_variants = read_csv("test_variants.zip")
 test_text = read_csv("test_text.zip", sep="\|\|", custom_header=['ID', 'Text'])
 merged_test_data = pd.merge(test_variants, test_text, on="ID", how='outer')
-test_df = merged_train_data[['Text', 'Gene', 'Variation']]
+test_df = merged_test_data[['Text', 'Gene', 'Variation']]
 test_id = merged_test_data['ID']
