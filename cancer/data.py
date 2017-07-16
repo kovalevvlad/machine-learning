@@ -29,11 +29,11 @@ def read_csv(file_name, sep=",", custom_header=None):
 train_variants = read_csv("training_variants.zip")
 train_text = read_csv("training_text.zip", sep=r"\|\|", custom_header=['ID', 'Text'])
 merged_train_data = pd.merge(train_variants, train_text, on="ID", how='outer')
-train_df = merged_train_data[['Text', 'Gene', 'Variation']]
-train_y = merged_train_data['Class']
+train_df = merged_train_data[['Text', 'Gene', 'Variation']].applymap(lambda x: x.decode('utf-8').encode('ascii', 'ignore'))
+train_y = merged_train_data['Class'].values
 
 test_variants = read_csv("test_variants.zip")
 test_text = read_csv("test_text.zip", sep="\|\|", custom_header=['ID', 'Text'])
 merged_test_data = pd.merge(test_variants, test_text, on="ID", how='outer')
-test_df = merged_test_data[['Text', 'Gene', 'Variation']]
+test_df = merged_test_data[['Text', 'Gene', 'Variation']].applymap(lambda x: x.decode('utf-8').encode('ascii', 'ignore'))
 test_id = merged_test_data['ID']

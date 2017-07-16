@@ -1,15 +1,17 @@
 import pandas as pd
-from lightgbm import LGBMClassifier
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import GridSearchCV
+from sklearn.svm import SVC
+import numpy as np
 
-from data import train_df, train_y, test_df
+from data import test_df, train_df, train_y
 from feature_extractor import feature_extractor
 
-
-feature_extractor.fit(pd.concat([train_df]))#, test_df]))
+feature_extractor.fit(pd.concat([train_df, test_df]))
 train_features = feature_extractor.transform(train_df)
-# test_features = feature_extractor.transform(test_df)
+test_features = feature_extractor.transform(test_df)
 
-estimator = LGBMClassifier()
-cv_scores = pd.Series(cross_val_score(estimator, train_features, train_y.values, scoring="neg_log_loss", cv=4, n_jobs=-1, verbose=5))
-print "{:.2f} +- {:.2f}".format(cv_scores.mean(), 2 * cv_scores.std())
+estimator = GridSearchCV(SVC(), param_grid={"C": 10. ** np.arange(-3, 4), "gamma": 10. ** np.arange(-5, 0)}, n_jobs=-1, verbose=10, scoring="accuracy")
+estimator.fit(train_features, train_y)
+print estimator.best_score_
+print estimator.best_params_
+print estimator.cv_results_

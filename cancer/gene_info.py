@@ -20,15 +20,19 @@ def location_features(gene_df):
     spot_location_regex = r"^(?P<chromosome>(?:[0-9]{1,2}|[XY]))(?P<hand>q|p)(?P<band>[0-9])(?P<subband>[0-9])(?:\.(?P<subsubband>[0-9]{1,3}))?$"
     range_location_regex = r"^(?P<chromosome>(?:[0-9]{1,2}|[XY]))(?P<hand>q|p)(?P<band>[0-9])(?P<subband>[0-9])(?:\.(?P<subsubband>[0-9]{1,3}))?-(?P<second_hand>q|p)(?P<second_band>[0-9])(?P<second_subband>[0-9])(?:\.(?P<second_subsubband>[0-9]{1,3}))?$"
     most_common_good_location = location[location.str.match(spot_location_regex)].value_counts().index[0]
+
     # Removing crappy locations such as - "22 not on reference assembly"
     location[(~location.str.match(spot_location_regex)) & (~location.str.match(range_location_regex))] = most_common_good_location
+
     # deal with spot locations
-    spot_locations = pd.DataFrame({"location": location[location.str.match(spot_location_regex)]})
-    spot_location_data = pd.concat([spot_locations, spot_locations.location.str.extract(spot_location_regex, expand=True)], axis=1)
+    spot_locations = location[location.str.match(spot_location_regex)]
+    spot_location_data = pd.concat([spot_locations.to_frame(), spot_locations.str.extract(spot_location_regex, expand=True)], axis=1)
+
     # deal with range locations
     range_locations = pd.DataFrame({"location": location[location.str.match(range_location_regex)]})
     range_location_data = pd.concat([range_locations, range_locations.location.str.extract(range_location_regex, expand=True)], axis=1)
     assert spot_location_data.shape[0] + range_location_data.shape[0] == location.shape[0]
+
     # For now do the simplest thing for range locations, pick the beginning of the range as the spot location
     # In the future might take the middle?
     columns_to_keep = [c for c in range_location_data.columns if not c.startswith("second_")]
@@ -43,16 +47,23 @@ def location_features(gene_df):
     all_location_data['hand'] = (all_location_data['hand'] == "q")
     all_location_data['chromosome'] = all_location_data['chromosome'].apply(lambda chromosome: int(chromosome) if chromosome.isdigit() else (23 if chromosome == "X" else 24))
 
-    return all_location_data
+    transform = DataFrameMapper([
+        (["chromosome"], OneHotEncoder()),
+        (["band"], OneHotEncoder()),
+        (["subband"], OneHotEncoder()),
+        (["hand"], None)])
+
+    transformed_features = transform.fit_transform(all_location_data)
+    return pd.DataFrame(transformed_features, columns=transform.transformed_names_, index=all_location_data.index)
 
 
-def gene_family_features(gene_info, interesting_genes):
-    # each gene group is mapped to a separate feature. Since we will not touch most of the groups,
-    # only leave the groups present in the training set
-    interesting_gene_info_subset = pd.merge(gene_info, interesting_genes, left_on="symbol", right_on="Gene")
-    vectorizer = CountVectorizer(binary=True).fit(interesting_gene_info_subset.gene_family_id.fillna(""))
+def gene_family_features(gene_info, genes_of_interest):
+    # It makes sense to throw away all gene groups not in the training data right away
+    # This reduces the number of family group features by a factor of 6
+    interesting_gene_subset = pd.merge(gene_info, genes_of_interest, left_on="symbol", right_on="Gene", how="inner")
+    vectorizer = CountVectorizer(binary=True).fit(interesting_gene_subset.gene_family_id.fillna(""))
     family_group_features = vectorizer.transform(gene_info.gene_family_id.fillna(""))
-    columns = ["family_" + family_id for family_id, _ in sorted(vectorizer.vocabulary_.items(), key=(lambda x: x[1]))]
+    columns = ["gene_family_" + family_id for family_id, _ in sorted(vectorizer.vocabulary_.items(), key=(lambda x: x[1]))]
     return pd.DataFrame(family_group_features.todense(), columns=columns, index=gene_info["symbol"])
 
 

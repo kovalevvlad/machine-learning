@@ -21,7 +21,7 @@ The scraper lives at [data_collection/amazon_crawler.py](data_collection/amazon_
  and Amazon captchas by retrying (in the case of captchas a massive
  back-off solves the problem).
 
- ## Analysis
+## Analysis
 
 Simple analysis is perfomed by [analysis.py](analysis.py). It considers
 effects of varying the price and title on the product rank.
