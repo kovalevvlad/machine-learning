@@ -7,3 +7,4 @@ __cache__/
 *.feather
 *.sqlt
 .cache/
+*.cpf

@@ -51,4 +51,4 @@ def read_train_df():
 
 
 key_df = read_key_df()
-train_df = read_train_df()
+train_df = read_train_df().fillna(0)

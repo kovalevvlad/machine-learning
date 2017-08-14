@@ -10,7 +10,7 @@ class CustomTimeseriesSplit:
 
     def split(self, X):
         n_samples = X.shape[0]
-        assert self.min_training_samples + self.n_splits + self.test_slice_size <= n_samples
+        assert self.min_training_samples + (self.n_splits - 1) + self.test_slice_size <= n_samples
         indices = np.arange(n_samples)
         for test_start_float in np.linspace(self.min_training_samples, n_samples - self.test_slice_size, num=self.n_splits):
             test_start = int(np.floor(test_start_float))

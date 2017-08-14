@@ -50,3 +50,4 @@ class SqlLiteDataSource:
                                "url": listing.url
                            })
             self.connection.commit()
+
