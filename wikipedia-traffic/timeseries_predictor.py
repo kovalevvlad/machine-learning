@@ -43,6 +43,8 @@ class TimeseriesPredictor(object):
         train_y = pd.concat(transformed_ys)
         self.model.fit(train_X, train_y)
 
+        self.feature_names = train_X.columns
+
         test_features, test_normalizing_log_medians = feature_extractor.extract_features(X)
         normalized_predictions = self.model.predict(test_features)
         prediction_label = "prediction"

@@ -12,7 +12,6 @@ from pandas_util import safe_reindex
 
 index = pd.date_range(start=datetime.datetime(2015, 1, 1), periods=360, name=feature_extractor.date_label)
 future_days = 60
-fe = FeatureExtractor(future_days, disable_parallelism=True)
 valid_page_names = [
     u'Special:MyLanguage/Help:Extension:Translate_www.mediawiki.org_mobile-web_all-agents',
     u'África_es.wikipedia.org_desktop_all-agents',
@@ -27,6 +26,12 @@ valid_page_names = [
 ]
 
 
+def pytest_generate_tests(metafunc):
+    parallelism = 'disable_parallelism'
+    if parallelism in metafunc.fixturenames:
+        metafunc.parametrize(parallelism, [True, False])
+
+
 def generate_X(values=range(len(index)), one_column=True):
     page_selector = [valid_page_names[0]] if one_column else valid_page_names
     missing_data_point_count = len(index) - len(values)
@@ -39,7 +44,8 @@ def expected_future_index(X, length):
     return pd.date_range(X.index.values[-1] + pd.Timedelta(days=1), periods=length)
 
 
-def test_flat_median_features():
+def test_flat_median_features(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X()
     features, norm_log_median = fe.extract_features(X)
     median_periods = [15, 30, 60, 120]
@@ -54,7 +60,8 @@ def normalize_X(X, norm_log_median):
     return np.log(X + 1) - norm_log_median
 
 
-def test_n():
+def test_n(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X()
     features, _ = fe.extract_features(X)
     future_index = expected_future_index(X, fe.future_days)
@@ -62,7 +69,8 @@ def test_n():
     assert (features.reset_index().set_index(feature_extractor.date_label)["n"] == expected_n).all()
 
 
-def test_is_weekday():
+def test_is_weekday(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X()
     features, _ = fe.extract_features(X)
     future_index = expected_future_index(X, fe.future_days)
@@ -70,8 +78,8 @@ def test_is_weekday():
     assert (features.reset_index().set_index(feature_extractor.date_label)["is weekday"] == expected).all()
 
 
-def test_day_of_week_one_hot():
-    fe = FeatureExtractor(future_days, disable_parallelism=True, one_hot=True)
+def test_day_of_week_one_hot(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=True)
     X = generate_X()
     features, _ = fe.extract_features(X)
     future_index = expected_future_index(X, fe.future_days)
@@ -81,8 +89,8 @@ def test_day_of_week_one_hot():
         assert (feature == expected).all()
 
 
-def test_day_of_week_categorical():
-    fe = FeatureExtractor(future_days, disable_parallelism=True, one_hot=False)
+def test_day_of_week_categorical(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=False)
     X = generate_X()
     features, _ = fe.extract_features(X)
     future_index = expected_future_index(X, fe.future_days)
@@ -92,7 +100,8 @@ def test_day_of_week_categorical():
     assert str(feature.dtype) == "category"
 
 
-def test_zeroes():
+def test_zeroes(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X(values=np.random.randint(0, high=2, size=120))
     features, _ = fe.extract_features(X)
     for period in [7, 14, 28, 56]:
@@ -102,7 +111,8 @@ def test_zeroes():
         assert actual == [expected]
 
 
-def test_split_median():
+def test_split_median(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X(values=np.random.random(len(index)))
     features, normalized_log_median = fe.extract_features(X)
     adjusted_X = normalize_X(X, normalized_log_median)
@@ -131,7 +141,8 @@ def test_split_median():
             assert (actual == expected_feature).all(), "period={}, current={}".format(period, test_current)
 
 
-def test_correlation():
+def test_correlation(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X(values=range(180))
     features, _ = fe.extract_features(X)
     for period in [30, 60, 120]:
@@ -152,7 +163,8 @@ def test_correlation():
         assert list(feature[X.columns[0]].unique())[0] > 0.8
 
 
-def test_volatility():
+def test_volatility(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X(values=np.repeat([123], 180))
     features, _ = fe.extract_features(X)
     for period in [30, 60, 120]:
@@ -198,7 +210,8 @@ def test_volatility():
         assert len(feature.unique()) == 2
 
 
-def test_periodicity():
+def test_periodicity(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     weekly_saw = generate_X(np.tile([1, 2, 3, 4, 5, 6, 7], 22))
     noisy_weekly_saw = weekly_saw + np.random.rand(*weekly_saw.shape) * 7
     line = generate_X()
@@ -211,7 +224,8 @@ def test_periodicity():
         assert (noisy_ws_features[feature_name] > line_features[feature_name]).all()
 
 
-def test_trend():
+def test_trend(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X()
     expected = X.iloc[-60:]
 
@@ -233,8 +247,8 @@ def test_trend():
         assert (expected_upper_bound > feature).all()
 
 
-def test_project_acces_agent():
-    fe = FeatureExtractor(future_days, disable_parallelism=True, one_hot=False)
+def test_project_acces_agent(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=False)
     X = generate_X(one_column=False)
     features, _ = fe.extract_features(X)
     page_info = {p: p.split("_")[-3:] for p in valid_page_names}
@@ -243,7 +257,7 @@ def test_project_acces_agent():
         for page in valid_page_names:
             assert (features.loc[page, :][feature_name] == page_info[page][feature_value_index]).all()
 
-    fe = FeatureExtractor(future_days, disable_parallelism=True, one_hot=True)
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=True)
     features, _ = fe.extract_features(X)
 
     for feature_name, feature_value_index in [("project", 0), ("access", 1), ("agent", 2)]:
@@ -254,8 +268,8 @@ def test_project_acces_agent():
                         (1. if page_info[page][feature_value_index] in feature_column else 0.)).all(), "feature: {}, page: {}".format(feature_name, page)
 
 
-def test_extract_with_y():
-    fe = FeatureExtractor(future_days, disable_parallelism=True, one_hot=True)
+def test_extract_with_y(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=True)
     X = generate_X(one_column=False)
     features, normalizing_log_median = fe.extract_features(X.iloc[:-future_days])
     features_via_with_y, normalized_y, normalizing_log_median_via_with_y = fe.features_with_y(X)

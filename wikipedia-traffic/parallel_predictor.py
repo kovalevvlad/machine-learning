@@ -4,10 +4,13 @@ import numpy as np
 import pandas as pd
 
 
-def parallel_sub_df_col_wise_apply(df, func, processes, concat_axis=1):
-    sub_df_columns = np.array_split(df.columns, processes)
-    process_pool = pp.ProcessPool(nodes=processes)
-    processed_sub_dfs = process_pool.map(func, [df[column_subset] for column_subset in sub_df_columns])
+def parallel_sub_df_col_wise_apply(df, func, processes, concat_axis=1, debug=False):
+    sub_df_columns = [subset for subset in np.array_split(df.columns, processes) if len(subset) > 0]
+    if debug:
+        processed_sub_dfs = map(func, [df[column_subset] for column_subset in sub_df_columns])
+    else:
+        process_pool = pp.ProcessPool(nodes=processes)
+        processed_sub_dfs = process_pool.map(func, [df[column_subset] for column_subset in sub_df_columns])
     return pd.concat(processed_sub_dfs, axis=concat_axis)
 
 
