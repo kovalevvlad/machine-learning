@@ -10,7 +10,12 @@ page_label = u"page"
 date_label = u"date"
 index_column_names = [page_label, date_label]
 y_label = "traffic"
-categorical_feature_names = ["project", "access", "agent", "day of week"]
+categorical_feature_names = ["project", "access", "agent"]
+median_periods = (14, 28, 56, 112)
+trend_periods = [28, 56, 112]
+zero_periods = [7, 28, 56, 112]
+volatility_periods = [28, 56, 112]
+periodicity_periods = [56, 112]
 
 
 def smooth(X, period):
@@ -60,7 +65,8 @@ class FeatureExtractor(object):
             features = features.drop(categorical_feature_names, axis=1)
         else:
             for categorical_feature in categorical_feature_names:
-                features[categorical_feature] = features[categorical_feature].astype("category")
+                if categorical_feature in features.columns:
+                    features[categorical_feature] = features[categorical_feature].astype("category")
 
         normalizing_log_median = self._normalizing_log_median(X)
         return features, normalizing_log_median
@@ -105,23 +111,21 @@ class FeatureExtractor(object):
         # Medians
         weekday_medians = dict()
         weekend_medians = dict()
-        median_periods = [15, 30, 60, 120]
         for median_period in median_periods:
             tail = log_x_rescaled.tail(median_period)
             weekday_medians[median_period] = tail[weekday_mask.tail(median_period)].median()
             weekend_medians[median_period] = tail[weekend_mask.tail(median_period)].median()
             # Solid medians
-            unchanging_features["median {}".format(median_period)] = tail.median()
+            # TODO unchanging_features["median {}".format(median_period)] = tail.median()
 
-        # Volatility
-        weekday_volatilities = dict()
-        weekend_volatilities = dict()
-        volatility_periods = [30, 60, 120]
-        for volatility_period in volatility_periods:
-            tail = log_x_rescaled.tail(volatility_period)
-            weekday_volatilities[volatility_period] = tail[weekday_mask.tail(volatility_period)].std()
-            weekend_volatilities[volatility_period] = tail[weekend_mask.tail(volatility_period)].std()
-            unchanging_features["volatility {}".format(volatility_period)] = tail.std()
+        # TODO Volatility
+        # weekday_volatilities = dict()
+        # weekend_volatilities = dict()
+        # for volatility_period in volatility_periods:
+        #     tail = log_x_rescaled.tail(volatility_period)
+        #     weekday_volatilities[volatility_period] = tail[weekday_mask.tail(volatility_period)].std()
+        #     weekend_volatilities[volatility_period] = tail[weekend_mask.tail(volatility_period)].std()
+        #     unchanging_features["volatility {}".format(volatility_period)] = tail.std()
 
         # project/access/agent
         categorical_features = pd.DataFrame(
@@ -129,14 +133,14 @@ class FeatureExtractor(object):
             columns=list(set(categorical_feature_names) - {"day of week"}),
             index=unchanging_features.index.values)
 
-        unchanging_features = pd.concat([categorical_features, unchanging_features], axis=1)
+        # TODO remove filter
+        unchanging_features = pd.concat([categorical_features[["project"]], unchanging_features], axis=1)
 
-        # periodicity
-        unchanging_features["weekly periodicity 60"] = weekly_power_spectrum(log_x_rescaled, 60)
-        unchanging_features["weekly periodicity 120"] = weekly_power_spectrum(log_x_rescaled, 120)
+        # TODO periodicity
+        # for period in periodicity_periods:
+        #     unchanging_features["weekly periodicity {}".format(period)] = weekly_power_spectrum(log_x_rescaled, period)
 
         # Linear trends, so using X here
-        trend_periods = [30, 60, 120]
         trends = dict()
         intercepts = dict()
         for trend_period in trend_periods:
@@ -146,15 +150,15 @@ class FeatureExtractor(object):
             trends[trend_period] = trend
             intercepts[trend_period] = intercept
 
-        # Zero features
-        for zero_period in [7, 14, 28, 56]:
-            unchanging_features["zeros in the last {} days".format(zero_period)] = (X.tail(zero_period) == 0.0).sum()
+        # todo Zero features
+        # for zero_period in zero_periods:
+        #     unchanging_features["zeros in the last {} days".format(zero_period)] = (X.tail(zero_period) == 0.0).sum()
 
-        def aggregate_feature_by(source, feature, aggregate_column, aggregator=lambda x: x.mean()):
-            aggregate = aggregator(source.groupby(aggregate_column)[feature])
-            merged = pd.merge(aggregate.to_frame(), source[[aggregate_column]], left_index=True, right_on=aggregate_column)
-            return merged[feature]
-
+        # def aggregate_feature_by(source, feature, aggregate_column, aggregator=lambda x: x.mean()):
+        #     aggregate = aggregator(source.groupby(aggregate_column)[feature])
+        #     merged = pd.merge(aggregate.to_frame(), source[[aggregate_column]], left_index=True, right_on=aggregate_column)
+        #     return merged[feature]
+        #
         # TODO: Aggregate features
         # for feature_to_aggregate in [c for c in unchanging_features.columns if c.startswith("median ") or
         #                                                                        c.startswith("zeros in the last ") or
@@ -177,19 +181,11 @@ class FeatureExtractor(object):
                 extrapolated_linear_trend_value = (trends[trend_period] * (n + trend_period) + intercepts[trend_period]).clip(lower=0)
                 features["extrapolated trend {}".format(trend_period)] = self._normalizing_transform(extrapolated_linear_trend_value, normalizing_log_median)
 
-            # Day type features
-            features["day of week"] = feature_date.weekday()
             is_weekday = feature_date.weekday() < 5
-            features["is weekday"] = 1 if is_weekday else 0
 
             # Median features
             for median_period in median_periods:
                 features["median {} for current day type".format(median_period)] = weekday_medians[median_period] if is_weekday else weekend_medians[median_period]
-                features["median {} for other day type".format(median_period)] = weekday_medians[median_period] if not is_weekday else weekend_medians[median_period]
-
-            for volatility_period in volatility_periods:
-                features["volatility {} for current day type".format(volatility_period)] = weekday_volatilities[volatility_period] if is_weekday else weekend_volatilities[volatility_period]
-                features["volatility {} for other day type".format(volatility_period)] = weekday_volatilities[volatility_period] if not is_weekday else weekend_volatilities[volatility_period]
 
             all_features.append(pd.concat([features, unchanging_features], axis=1))
 

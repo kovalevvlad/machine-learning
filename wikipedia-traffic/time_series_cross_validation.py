@@ -16,7 +16,8 @@ def np_datetime_to_date_str(d):
 
 
 def cross_val_score(model, X, cv, score, **kwargs):
-    scores = []
+    train_scores = []
+    test_scores = []
     for train, test in cv.split(X):
         logging.debug("running CV score with train {}..{} and test {}..{}".format(
             np_datetime_to_date_str(train.index.values[0]),
@@ -24,10 +25,11 @@ def cross_val_score(model, X, cv, score, **kwargs):
             np_datetime_to_date_str(test.index.values[0]),
             np_datetime_to_date_str(test.index.values[-1])))
         predictions = model.predict(train, **kwargs)
-        result = score(test, predictions)
-        logging.debug("CV round yielded {}".format(result))
-        scores.append(result)
-    return pd.Series(scores)
+        test_score = score(test, predictions)
+        logging.debug("CV round yielded {}".format(test_score))
+        train_scores.append(model.training_score)
+        test_scores.append(test_score)
+    return pd.Series(train_scores), pd.Series(test_scores)
 
 
 class TSGridSearchCV:

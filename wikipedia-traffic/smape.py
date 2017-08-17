@@ -2,12 +2,14 @@ import numpy as np
 import pandas as pd
 
 from math_util import assert_no_nulls, assert_no_infs
+from pandas_util import safe_reindex
 
 
 def df_smape(ground_truth, predictions):
     """
     As defined at https://en.wikipedia.org/wiki/Symmetric_mean_absolute_percentage_error
     """
+    predictions = safe_reindex(predictions, ground_truth.index)
     assert ground_truth.shape == predictions.shape
     assert (ground_truth.index == predictions.index).all()
     assert (ground_truth.columns == predictions.columns).all()
