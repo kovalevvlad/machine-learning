@@ -1,17 +1,17 @@
 import pandas as pd
 from math_util import weekly_power_spectrum
 import numpy as np
-
 from pandas_util import safe_reindex
 from parallel_predictor import parallel_sub_df_col_wise_apply
 from categorical_one_hot import CategoricalOneHotEncoder
+from holidays import holiday_features_for_date
 
 page_label = u"page"
 date_label = u"date"
 index_column_names = [page_label, date_label]
 y_label = "traffic"
 categorical_feature_names = ["project", "access", "agent"]
-median_periods = (14, 28, 56, 112)
+median_periods = (14, 28, 42, 56, 112)
 trend_periods = [28, 56, 112]
 zero_periods = [7, 28, 56, 112]
 volatility_periods = [28, 56, 112]
@@ -39,9 +39,24 @@ def correlation(X):
     return X.corrwith(int_range_df).fillna(0)
 
 
+def series_to_32bit_dtypes(s):
+    if s.dtype == np.int64:
+        return s.astype(np.int32)
+    elif s.dtype == np.float64:
+        return s.astype(np.float32)
+    else:
+        return s
+
+
+def df_to_32bit_dtypes(df):
+    for c in df.columns:
+        if df[c].dtype in (np.int64, np.float64):
+            df[c] = series_to_32bit_dtypes(df[c])
+    return df
+
+
 class FeatureExtractor(object):
-    def __init__(self, future_days, normalizing_period=42, disable_parallelism=False, one_hot=True, smoothing=7):
-        self.normalizing_period = normalizing_period
+    def __init__(self, future_days, disable_parallelism=False, one_hot=True, smoothing=7):
         self.future_days = future_days
         self.disable_parallelism = disable_parallelism
         self.one_hot = one_hot
@@ -49,7 +64,7 @@ class FeatureExtractor(object):
 
     def extract_features(self, X):
         date_range_size = X.shape[0]
-        assert date_range_size >= 120, "Need at least 120 days to extract meaningful features, instead got {}".format(date_range_size)
+        assert date_range_size >= 112, "Need at least 112 days to extract meaningful features, instead got {}".format(date_range_size)
         if self.disable_parallelism:
             features = self._serial_extract_features(X)
         else:
@@ -68,77 +83,61 @@ class FeatureExtractor(object):
                 if categorical_feature in features.columns:
                     features[categorical_feature] = features[categorical_feature].astype("category")
 
-        normalizing_log_median = self._normalizing_log_median(X)
-        return features, normalizing_log_median
+        return features
 
     def features_with_y(self, df):
         training_df = df.iloc[:-self.future_days]
-        features, normalizing_log_median = self.extract_features(training_df)
+        features = self.extract_features(training_df)
 
-        normalized_y_2d = self._normalizing_transform(df.iloc[-self.future_days:], normalizing_log_median)
-        normalized_flat_y = safe_reindex(normalized_y_2d
-                                         .reset_index()
-                                         .rename(columns={"index": date_label})
-                                         .melt(id_vars=[date_label], var_name=page_label, value_name=y_label)
-                                         .set_index(index_column_names), features.index)[y_label]
+        y_2d = df.iloc[-self.future_days:]
+        flat_y = safe_reindex(y_2d
+                              .reset_index()
+                              .rename(columns={"index": date_label})
+                              .melt(id_vars=[date_label], var_name=page_label, value_name=y_label)
+                              .set_index(index_column_names), features.index)[y_label]
 
-        assert normalized_flat_y.isnull().sum() == 0, normalized_flat_y[normalized_flat_y.isnull()]
-        assert np.isinf(normalized_flat_y).sum() == 0, normalized_flat_y[np.isinf(normalized_flat_y)]
+        assert flat_y.isnull().sum() == 0, flat_y[flat_y.isnull()]
+        assert np.isinf(flat_y).sum() == 0, flat_y[np.isinf(flat_y)]
 
-        return features, normalized_flat_y, normalizing_log_median
-
-    @staticmethod
-    def inverse_y_transform(transformed_y, normalizing_log_median):
-        return np.exp(transformed_y + normalizing_log_median) - 1
-
-    def _normalizing_transform(self, X, normalizing_log_median):
-        return np.log(X + 1) - normalizing_log_median
-
-    def _normalizing_log_median(self, X):
-        return np.log(X + 1).tail(self.normalizing_period).median()
+        return features, series_to_32bit_dtypes(flat_y)
 
     def _serial_extract_features(self, X):
-        # Use log transform to bring all series into the same frame of reference e.g. 1,0,1,1,2,1 series is going to
-        # look similar to 1000, 1142, 901, 802, 999 except with a higher std after rescaling
-        normalizing_log_median = safe_reindex(self._normalizing_log_median(X), X.columns)
-        log_x_rescaled = self._normalizing_transform(X, normalizing_log_median)
-
         # These features do not change with the date
-        unchanging_features = pd.DataFrame(index=log_x_rescaled.columns)
-        weekday_mask = pd.Series(log_x_rescaled.index.weekday < 5, index=log_x_rescaled.index)
+        unchanging_features = pd.DataFrame(index=X.columns)
+        weekday_mask = pd.Series(X.index.weekday < 5, index=X.index)
         weekend_mask = ~weekday_mask
 
         # Medians
         weekday_medians = dict()
         weekend_medians = dict()
         for median_period in median_periods:
-            tail = log_x_rescaled.tail(median_period)
+            tail = X.tail(median_period)
             weekday_medians[median_period] = tail[weekday_mask.tail(median_period)].median()
             weekend_medians[median_period] = tail[weekend_mask.tail(median_period)].median()
             # Solid medians
-            # TODO unchanging_features["median {}".format(median_period)] = tail.median()
+            unchanging_features["median {}".format(median_period)] = tail.median()
 
-        # TODO Volatility
-        # weekday_volatilities = dict()
-        # weekend_volatilities = dict()
-        # for volatility_period in volatility_periods:
-        #     tail = log_x_rescaled.tail(volatility_period)
-        #     weekday_volatilities[volatility_period] = tail[weekday_mask.tail(volatility_period)].std()
-        #     weekend_volatilities[volatility_period] = tail[weekend_mask.tail(volatility_period)].std()
-        #     unchanging_features["volatility {}".format(volatility_period)] = tail.std()
+        # Volatility
+        weekday_volatilities = dict()
+        weekend_volatilities = dict()
+        for volatility_period in volatility_periods:
+            tail = X.tail(volatility_period)
+            weekday_volatilities[volatility_period] = tail[weekday_mask.tail(volatility_period)].std()
+            weekend_volatilities[volatility_period] = tail[weekend_mask.tail(volatility_period)].std()
+            unchanging_features["volatility {}".format(volatility_period)] = tail.std()
 
         # project/access/agent
         categorical_features = pd.DataFrame(
             list(pd.Series(unchanging_features.index).str.split("_").apply(lambda x: x[-3:]).values),
-            columns=list(set(categorical_feature_names) - {"day of week"}),
+            columns=["project", "access", "agent"],
             index=unchanging_features.index.values)
 
-        # TODO remove filter
-        unchanging_features = pd.concat([categorical_features[["project"]], unchanging_features], axis=1)
+        # remove filter
+        unchanging_features = pd.concat([categorical_features, unchanging_features], axis=1)
 
-        # TODO periodicity
-        # for period in periodicity_periods:
-        #     unchanging_features["weekly periodicity {}".format(period)] = weekly_power_spectrum(log_x_rescaled, period)
+        # periodicity
+        for period in periodicity_periods:
+            unchanging_features["weekly periodicity {}".format(period)] = weekly_power_spectrum(X, period)
 
         # Linear trends, so using X here
         trends = dict()
@@ -150,9 +149,9 @@ class FeatureExtractor(object):
             trends[trend_period] = trend
             intercepts[trend_period] = intercept
 
-        # todo Zero features
-        # for zero_period in zero_periods:
-        #     unchanging_features["zeros in the last {} days".format(zero_period)] = (X.tail(zero_period) == 0.0).sum()
+        # Zero features
+        for zero_period in zero_periods:
+            unchanging_features["zeros in the last {} days".format(zero_period)] = (X.tail(zero_period) == 0.0).sum()
 
         # def aggregate_feature_by(source, feature, aggregate_column, aggregator=lambda x: x.mean()):
         #     aggregate = aggregator(source.groupby(aggregate_column)[feature])
@@ -170,18 +169,25 @@ class FeatureExtractor(object):
         #         new_feature_name = "median {} by {}".format(feature_to_aggregate, aggregate_by_feature)
         #         unchanging_features[new_feature_name] = aggregate_feature_by(unchanging_features, feature_to_aggregate, aggregate_by_feature)
         all_features = []
-        first_predicted_date = log_x_rescaled.index[-1] + pd.Timedelta(days=1)
+        first_predicted_date = X.index[-1] + pd.Timedelta(days=1)
         for n in range(self.future_days):
             feature_date = first_predicted_date + pd.Timedelta(days=n)
-            features = pd.DataFrame(index=log_x_rescaled.columns)
+            features = pd.DataFrame(index=X.columns)
 
             features[date_label] = feature_date
             features["n"] = n
-            for trend_period in trend_periods:
-                extrapolated_linear_trend_value = (trends[trend_period] * (n + trend_period) + intercepts[trend_period]).clip(lower=0)
-                features["extrapolated trend {}".format(trend_period)] = self._normalizing_transform(extrapolated_linear_trend_value, normalizing_log_median)
+            features["day of week"] = feature_date.weekday()
 
             is_weekday = feature_date.weekday() < 5
+            features["is weekday"] = is_weekday
+
+            holiday_features = holiday_features_for_date(feature_date)
+            for holiday_feature, value in holiday_features.items():
+                features[holiday_feature] = value
+
+            for trend_period in trend_periods:
+                extrapolated_linear_trend_value = (trends[trend_period] * (n + trend_period) + intercepts[trend_period]).clip(lower=0)
+                features["extrapolated trend {}".format(trend_period)] = extrapolated_linear_trend_value
 
             # Median features
             for median_period in median_periods:
@@ -195,4 +201,4 @@ class FeatureExtractor(object):
         assert feature_df.isnull().sum().sum() == 0, feature_df.isnull().sum()[feature_df.isnull().sum() != 0]
         numeric_component = feature_df[feature_df.dtypes[feature_df.dtypes.apply(lambda x: str(x)).str.match("^(int|float).*")].index.values]
         assert np.isinf(numeric_component).sum().sum() == 0, np.isinf(numeric_component).sum()[np.isinf(numeric_component).sum() != 0]
-        return feature_df
+        return df_to_32bit_dtypes(feature_df)

@@ -41,22 +41,17 @@ def expected_future_index(X, length):
 def test_flat_median_features(disable_parallelism):
     fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X()
-    features, norm_log_median = fe.extract_features(X)
+    features = fe.extract_features(X)
     for median_period in median_periods:
         median_feature = features["median {}".format(median_period)].loc[X.columns[0]]
-        adjusted_X = normalize_X(X, norm_log_median)
-        expected_feature_value = adjusted_X.tail(median_period).median()
+        expected_feature_value = X.tail(median_period).median()
         assert median_feature.unique() == [expected_feature_value]
-
-
-def normalize_X(X, norm_log_median):
-    return np.log(X + 1) - norm_log_median
 
 
 def test_n(disable_parallelism):
     fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X()
-    features, _ = fe.extract_features(X)
+    features = fe.extract_features(X)
     future_index = expected_future_index(X, fe.future_days)
     expected_n = pd.Series(range(fe.future_days), index=future_index)
     assert (features.reset_index().set_index(feature_extractor.date_label)["n"] == expected_n).all()
@@ -65,7 +60,7 @@ def test_n(disable_parallelism):
 def test_zeroes(disable_parallelism):
     fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X(values=np.random.randint(0, high=2, size=120))
-    features, _ = fe.extract_features(X)
+    features = fe.extract_features(X)
     for period in zero_periods:
         expected = (X.tail(period) == 0).sum().sum()
         feature = features["zeros in the last {} days".format(period)]
@@ -76,18 +71,17 @@ def test_zeroes(disable_parallelism):
 def test_split_median(disable_parallelism):
     fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X(values=np.random.random(len(index)))
-    features, normalized_log_median = fe.extract_features(X)
-    adjusted_X = normalize_X(X, normalized_log_median)
+    features = fe.extract_features(X)
     for period in median_periods:
         # actual
         feature_name = "median {} for current day type".format(period)
         actual = features.reset_index().set_index(feature_extractor.date_label)[feature_name]
 
         # expected
-        adjusted_X_tail = adjusted_X[adjusted_X.columns[0]].tail(period)
-        weekday_mask = adjusted_X_tail.index.weekday < 5
-        weekday_median = adjusted_X_tail[weekday_mask].median()
-        weekend_median = adjusted_X_tail[~weekday_mask].median()
+        X_tail = X[X.columns[0]].tail(period)
+        weekday_mask = X_tail.index.weekday < 5
+        weekday_median = X_tail[weekday_mask].median()
+        weekend_median = X_tail[~weekday_mask].median()
 
         future_index = features.reset_index()[feature_extractor.date_label]
         future_weekday = pd.Series((future_index.dt.weekday < 5).values, future_index)
@@ -103,19 +97,19 @@ def test_split_median(disable_parallelism):
 def test_correlation(disable_parallelism):
     fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X(values=range(180))
-    features, _ = fe.extract_features(X)
+    features = fe.extract_features(X)
     for period in trend_periods:
         feature = features["correlation {}".format(period)]
         assert list(feature[X.columns[0]].unique())[0] == pytest.approx(1., rel=0.00001)
 
     X = generate_X(values=np.repeat([0], 180))
-    features, _ = fe.extract_features(X)
+    features = fe.extract_features(X)
     for period in trend_periods:
         feature = features["correlation {}".format(period)]
         assert list(feature[X.columns[0]].unique())[0] == pytest.approx(0., abs=0.00001)
 
     X = generate_X(values=np.arange(180) + np.random.rand(180))
-    features, _ = fe.extract_features(X)
+    features = fe.extract_features(X)
     for period in trend_periods:
         feature = features["correlation {}".format(period)]
         assert list(feature[X.columns[0]].unique())[0] < 1.
@@ -125,7 +119,7 @@ def test_correlation(disable_parallelism):
 def test_volatility(disable_parallelism):
     fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism)
     X = generate_X(values=np.repeat([123], 180))
-    features, _ = fe.extract_features(X)
+    features = fe.extract_features(X)
     for period in volatility_periods:
         for feature_name_template in ["volatility {}"]:
             feature_name = feature_name_template.format(period)
@@ -134,8 +128,8 @@ def test_volatility(disable_parallelism):
 
     X = generate_X(values=np.random.rand(180))
     X1 = generate_X(values=np.random.rand(180) * 100)
-    features, _ = fe.extract_features(X)
-    features1, _ = fe.extract_features(X1)
+    features = fe.extract_features(X)
+    features1 = fe.extract_features(X1)
     for period in volatility_periods:
         for feature_name_template in ["volatility {}"]:
             feature_name = feature_name_template.format(period)
@@ -158,9 +152,9 @@ def test_periodicity(disable_parallelism):
     weekly_saw = generate_X(np.tile([1, 2, 3, 4, 5, 6, 7], 22))
     noisy_weekly_saw = weekly_saw + np.random.rand(*weekly_saw.shape) * 7
     line = generate_X()
-    ws_features, _ = fe.extract_features(weekly_saw)
-    noisy_ws_features, _ = fe.extract_features(noisy_weekly_saw)
-    line_features, _ = fe.extract_features(line)
+    ws_features = fe.extract_features(weekly_saw)
+    noisy_ws_features = fe.extract_features(noisy_weekly_saw)
+    line_features = fe.extract_features(line)
     for period in periodicity_periods:
         feature_name = "weekly periodicity {}".format(period)
         assert (ws_features[feature_name] > noisy_ws_features[feature_name]).all()
@@ -177,12 +171,11 @@ def test_trend(disable_parallelism):
     X.iloc[-5] = 1e9
 
     expected = expected[expected.columns[0]]
-    features, normalizing_log_median = fe.extract_features(X)
+    features = fe.extract_features(X)
 
     for period in trend_periods:
         feature_name = "extrapolated trend {}".format(period)
-        normalized_feature = features[feature_name]
-        feature = np.exp(normalized_feature + normalizing_log_median.values[0]) - 1
+        feature = features[feature_name]
         feature = feature.reset_index().drop(labels=[feature_extractor.page_label], axis=1).set_index([feature_extractor.date_label])[feature_name]
         expected_lower_bound = expected * 0.99
         expected_upper_bound = expected * 1.01
@@ -193,7 +186,7 @@ def test_trend(disable_parallelism):
 def test_project_acces_agent(disable_parallelism):
     fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=False)
     X = generate_X(one_column=False)
-    features, _ = fe.extract_features(X)
+    features = fe.extract_features(X)
     page_info = {p: p.split("_")[-3:] for p in valid_page_names}
 
     for feature_name, feature_value_index in [("project", 0), ("access", 1), ("agent", 2)]:
@@ -201,7 +194,7 @@ def test_project_acces_agent(disable_parallelism):
             assert (features.loc[page, :][feature_name] == page_info[page][feature_value_index]).all()
 
     fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=True)
-    features, _ = fe.extract_features(X)
+    features = fe.extract_features(X)
 
     for feature_name, feature_value_index in [("project", 0), ("access", 1), ("agent", 2)]:
         for page in valid_page_names:
@@ -214,17 +207,42 @@ def test_project_acces_agent(disable_parallelism):
 def test_extract_with_y(disable_parallelism):
     fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=True)
     X = generate_X(one_column=False)
-    features, normalizing_log_median = fe.extract_features(X.iloc[:-future_days])
-    features_via_with_y, normalized_y, normalizing_log_median_via_with_y = fe.features_with_y(X)
+    features = fe.extract_features(X.iloc[:-future_days])
+    features_via_with_y, y = fe.features_with_y(X)
 
     assert (features == features_via_with_y).all().all()
-    assert (normalizing_log_median == normalizing_log_median_via_with_y).all()
 
     raw_y = X.iloc[-future_days:]
-    norm_raw_y = np.log(raw_y + 1) - normalizing_log_median
-    expected_y = (norm_raw_y
+    expected_y = (raw_y
                   .reset_index()
                   .melt(id_vars=[feature_extractor.date_label], var_name=feature_extractor.page_label, value_name=feature_extractor.y_label)
                   .set_index(feature_extractor.index_column_names)[feature_extractor.y_label])
-    expected_y = safe_reindex(expected_y, normalized_y.index)
-    assert (normalized_y == expected_y).all()
+    expected_y = safe_reindex(expected_y, y.index)
+    assert (y == expected_y).all()
+
+
+def test_is_weekday(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=True)
+    X = generate_X(one_column=False)
+    features = fe.extract_features(X.iloc[:-future_days])
+    expected_is_weekday = pd.Series((features.reset_index()["date"].dt.weekday <= 4).values, index=features.index)
+    actual_is_weekday = features["is weekday"]
+    assert (actual_is_weekday == expected_is_weekday).all()
+
+
+def test_weekday(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=True)
+    X = generate_X(one_column=False)
+    features = fe.extract_features(X.iloc[:-future_days])
+    expected_weekday = pd.Series(features.reset_index()["date"].dt.weekday.values, index=features.index)
+    actual_weekday = features["day of week"]
+    assert (actual_weekday == expected_weekday).all()
+
+
+def test_holiday_features(disable_parallelism):
+    fe = FeatureExtractor(future_days, disable_parallelism=disable_parallelism, one_hot=True)
+    X = generate_X(one_column=False)
+    features = fe.extract_features(X.iloc[:-future_days])
+    rfeatures = features.reset_index()
+    assert rfeatures[rfeatures.date == datetime.date(2017, 2, 24)]["Russia on holiday"].all()
+    assert not rfeatures[rfeatures.date == datetime.date(2017, 2, 23)]["Russia on holiday"].any()

@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import pkg_resources
+import numpy as np
 
 
 def raw_data_file_path(file_name):
@@ -50,5 +51,4 @@ def read_train_df():
     return generate_with_caching("train_df_processed", generator_func).set_index(u"index")
 
 
-key_df = read_key_df()
-train_df = read_train_df().fillna(0)
+train_df = read_train_df().fillna(0).astype(np.int32)

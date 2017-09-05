@@ -19,7 +19,7 @@ def test_correct_values_supplied_to_model(disable_parallelism):
     class FakeModel:
         def __init__(self):
             self.fit_called = False
-            self.predict_call_count = False
+            self.predict_call_count = 0
 
         def fit(self, X, y):
             all_features_and_ys = []
@@ -38,13 +38,12 @@ def test_correct_values_supplied_to_model(disable_parallelism):
             as_of_index = days_to_predict + shift
             training_data = data.iloc[:-as_of_index]
             fe = FeatureExtractor(days_to_predict, disable_parallelism=True)
-            expected_features, norm_log_median = fe.extract_features(training_data)
+            expected_features = fe.extract_features(training_data)
             expected_features["shift"] = shift
             new_index_columns = ["shift"] + index_column_names
             expected_features = expected_features.reset_index().set_index(new_index_columns)
 
-            y_data = data.iloc[-as_of_index:-shift] if shift > 0 else data.iloc[-as_of_index:]
-            expected_y_df = np.log(y_data + 1) - norm_log_median
+            expected_y_df = data.iloc[-as_of_index:-shift] if shift > 0 else data.iloc[-as_of_index:]
             expected_y_df["shift"] = shift
             expected_y = expected_y_df.reset_index().melt(id_vars=[date_label, "shift"], var_name=page_label, value_name=y_label).set_index(new_index_columns)[y_label]
 
@@ -54,7 +53,7 @@ def test_correct_values_supplied_to_model(disable_parallelism):
             # The first call is for training_score estimation - ignore it
             if self.predict_call_count == 1:
                 fe = FeatureExtractor(days_to_predict, disable_parallelism=disable_parallelism)
-                expected_features, norm_log_median = fe.extract_features(data)
+                expected_features = fe.extract_features(data)
                 expected_features = safe_reindex(expected_features, X.index)
                 assert (X == expected_features).all().all()
             self.predict_call_count += 1
@@ -71,26 +70,21 @@ def test_training_score(disable_parallelism):
     X = generate_X(np.tile([actual_raw_traffic_value], 360))
 
     class FakeModel:
-        def __init__(self, normalized_prediction_value):
-            self.normalized_prediction_value = normalized_prediction_value
+        def __init__(self, prediction_value):
+            self.prediction_value = prediction_value
 
         def fit(self, features, y):
             pass
 
         def predict(self, features):
-            return np.repeat([self.normalized_prediction_value], features.shape[0])
+            return np.repeat([self.prediction_value], features.shape[0])
 
-    # Y is normalized by subtracting median hence normalized y is all 0.0
-    correct_normalized_prediction_value = 0.0
-    predictor = TimeseriesPredictor(60, 2, 3, FakeModel(correct_normalized_prediction_value), np_smape, disable_parallelism=disable_parallelism)
+    predictor = TimeseriesPredictor(60, 2, 3, FakeModel(actual_raw_traffic_value), np_smape, disable_parallelism=disable_parallelism)
     predictor.predict(X)
     assert predictor.training_score == pytest.approx(0.0, abs=0.0001)
 
-    # A normalized prediction value of 1 will get turned into exp(1. + log(actual_raw_traffic_value + 1.)) - 1
-    # due to normalization
-    incorrect_normalized_prediction_value = 1.0
-    predictor = TimeseriesPredictor(60, 2, 3, FakeModel(incorrect_normalized_prediction_value), np_smape, disable_parallelism=disable_parallelism)
+    incorrect_prediction_value = actual_raw_traffic_value + 1.0
+    predictor = TimeseriesPredictor(60, 2, 3, FakeModel(incorrect_prediction_value), np_smape, disable_parallelism=disable_parallelism)
     predictor.predict(X)
-    incorrect_denorm_prediction_value = np.exp(1. + np.log(1. + actual_raw_traffic_value)) - 1
-    expected_error = np_smape(np.array([actual_raw_traffic_value]), np.array([incorrect_denorm_prediction_value]))
+    expected_error = np_smape(np.array([actual_raw_traffic_value]), np.array([incorrect_prediction_value]))
     assert predictor.training_score == pytest.approx(expected_error, rel=0.0001)
